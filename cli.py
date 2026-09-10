@@ -12,6 +12,7 @@ from src.ingestion import run_ingestion, DataPipeline
 from src.detection import alert_generator, signature_manager, ioc_manager
 from src.detection.detection_pipeline import DetectionPipeline, run_full_detection_pipeline
 from src.detection.load_signatures import load_default_signatures
+from src.ml import model_trainer, anomaly_detector
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,112 @@ def cmd_update_iocs(args):
     logger.info("=" * 60)
 
 
+def cmd_train_ml(args):
+    """Train ML anomaly detection model."""
+    model_type = args.model
+    dataset = args.dataset
+    sample_size = args.sample_size
+
+    logger.info("=" * 60)
+    logger.info(f"Training {model_type} on {dataset}")
+    if sample_size:
+        logger.info(f"Using {sample_size} samples")
+    logger.info("=" * 60)
+
+    try:
+        if model_type == 'isolation-forest':
+            results = model_trainer.train_isolation_forest(
+                dataset_name=dataset,
+                sample_size=sample_size
+            )
+        elif model_type == 'one-class-svm':
+            results = model_trainer.train_one_class_svm(
+                dataset_name=dataset,
+                sample_size=sample_size or 10000  # SVM default smaller
+            )
+        elif model_type == 'autoencoder':
+            results = model_trainer.train_autoencoder(
+                dataset_name=dataset,
+                sample_size=sample_size
+            )
+        else:
+            logger.error(f"Unknown model type: {model_type}")
+            sys.exit(1)
+
+        logger.info("=" * 60)
+        logger.info("Training Results:")
+        logger.info(f"  Model saved: {results['model_path']}")
+        logger.info(f"  Training samples: {results['training_samples']}")
+        logger.info(f"  Test samples: {results['test_samples']}")
+        logger.info("\nMetrics:")
+        for metric, value in results['metrics'].items():
+            if isinstance(value, float):
+                logger.info(f"  {metric}: {value:.4f}")
+            else:
+                logger.info(f"  {metric}: {value}")
+        logger.info("=" * 60)
+
+    except Exception as e:
+        logger.error(f"Training failed: {e}", exc_info=True)
+        sys.exit(1)
+
+
+def cmd_ml_detect(args):
+    """Run ML anomaly detection on existing events."""
+    logger.info("Running ML anomaly detection...")
+
+    # Reload models
+    anomaly_detector.load_active_models()
+
+    if not anomaly_detector.models:
+        logger.error("No active ML models found. Train a model first with: python cli.py train-ml")
+        sys.exit(1)
+
+    # Get events
+    pipeline = DataPipeline()
+    events = pipeline.get_events(
+        event_type=args.event_type,
+        limit=args.limit
+    )
+
+    if not events:
+        logger.info("No events found")
+        return
+
+    logger.info(f"Processing {len(events)} events...")
+
+    stats = anomaly_detector.process_events_batch(
+        events,
+        threshold=args.threshold
+    )
+
+    logger.info("=" * 60)
+    logger.info("ML Detection Results:")
+    logger.info(f"  Events processed: {stats['events_processed']}")
+    logger.info(f"  Anomalies detected: {stats['anomalies_detected']}")
+    logger.info(f"  Alerts generated: {stats['alerts_generated']}")
+    logger.info("=" * 60)
+
+
+def cmd_list_datasets(args):
+    """List available datasets."""
+    datasets = model_trainer.list_available_datasets()
+
+    logger.info("=" * 60)
+    logger.info("Available Datasets:")
+    logger.info("=" * 60)
+
+    for name, info in datasets.items():
+        status = "✓ Found" if info['exists'] else "✗ Not found"
+        logger.info(f"\n{name}: {status}")
+        logger.info(f"  Path: {info['path']}")
+        if info['exists']:
+            logger.info(f"  Files: {len(info['files'])}")
+            if args.verbose:
+                for file in info['files'][:5]:  # Show first 5 files
+                    logger.info(f"    - {file}")
+
+
 def main():
     """Main CLI entry point."""
     parser = argparse.ArgumentParser(
@@ -304,6 +411,57 @@ def main():
     # Update IOCs command
     parser_update_iocs = subparsers.add_parser('update-iocs', help='Update IOC feeds')
     parser_update_iocs.set_defaults(func=cmd_update_iocs)
+
+    # Train ML model command
+    parser_train_ml = subparsers.add_parser('train-ml', help='Train ML anomaly detection model')
+    parser_train_ml.add_argument(
+        '--model',
+        choices=['isolation-forest', 'one-class-svm', 'autoencoder'],
+        default='isolation-forest',
+        help='Model type to train (default: isolation-forest)'
+    )
+    parser_train_ml.add_argument(
+        '--dataset',
+        choices=['CIC-IDS2017', 'NSL-KDD', 'UNSW-NB15'],
+        default='CIC-IDS2017',
+        help='Dataset to use (default: CIC-IDS2017)'
+    )
+    parser_train_ml.add_argument(
+        '--sample-size',
+        type=int,
+        help='Number of samples to use (default: all)'
+    )
+    parser_train_ml.set_defaults(func=cmd_train_ml)
+
+    # ML detection command
+    parser_ml_detect = subparsers.add_parser('ml-detect', help='Run ML anomaly detection')
+    parser_ml_detect.add_argument(
+        '--event-type',
+        choices=['network', 'host'],
+        help='Filter by event type'
+    )
+    parser_ml_detect.add_argument(
+        '--threshold',
+        type=float,
+        default=0.5,
+        help='Anomaly threshold 0-1 (default: 0.5)'
+    )
+    parser_ml_detect.add_argument(
+        '--limit',
+        type=int,
+        default=1000,
+        help='Maximum events to process (default: 1000)'
+    )
+    parser_ml_detect.set_defaults(func=cmd_ml_detect)
+
+    # List datasets command
+    parser_list_datasets = subparsers.add_parser('list-datasets', help='List available datasets')
+    parser_list_datasets.add_argument(
+        '--verbose',
+        action='store_true',
+        help='Show dataset files'
+    )
+    parser_list_datasets.set_defaults(func=cmd_list_datasets)
 
     args = parser.parse_args()
 
