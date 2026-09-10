@@ -1,0 +1,195 @@
+# System Configuration
+system:
+  name: "AI-Powered IDS"
+  version: "1.0.0"
+  environment: "development"  # development, staging, production
+
+# Database Configuration
+database:
+  type: "sqlite"  # sqlite, postgresql
+  sqlite:
+    path: "data/ids.db"
+  postgresql:
+    host: "localhost"
+    port: 5432
+    database: "ids_db"
+    user: "ids_user"
+    password: ""
+    pool_size: 10
+
+# Data Ingestion
+ingestion:
+  # Network traffic sources
+  network:
+    enabled: true
+    pcap_directory: "data/pcaps/"
+    live_capture:
+      enabled: false
+      interface: "eth0"
+      buffer_size: 2048
+    netflow:
+      enabled: false
+      port: 2055
+
+  # Host log sources
+  host:
+    enabled: true
+    log_directory: "data/logs/"
+    syslog:
+      enabled: false
+      port: 514
+    windows_events:
+      enabled: true
+      formats: ["evtx", "json"]
+    auditd:
+      enabled: true
+
+# Feature Extraction
+features:
+  network:
+    - flow_duration
+    - bytes_sent
+    - bytes_received
+    - packets_sent
+    - packets_received
+    - port_entropy
+    - connection_frequency
+    - protocol_distribution
+    - unique_dst_ports
+    - unique_dst_ips
+
+  host:
+    - process_spawn_rate
+    - login_frequency
+    - failed_login_count
+    - privilege_escalation_attempts
+    - file_access_rate
+    - network_connection_count
+    - command_execution_rate
+    - unusual_parent_child
+
+# Alert Configuration
+alerts:
+  severity_levels:
+    - "low"
+    - "medium"
+    - "high"
+    - "critical"
+
+  retention_days: 90
+  deduplication:
+    enabled: true
+    time_window_seconds: 300
+    similarity_threshold: 0.8
+
+  enrichment:
+    geoip: true
+    threat_intel: true
+    asset_criticality: true
+
+# Signature Detection
+signatures:
+  enabled: true
+  rules_directory: "config/rules/"
+  update_interval_hours: 6
+  ioc_feeds:
+    - name: "abuse_ch"
+      url: "https://sslbl.abuse.ch/blacklist/sslipblacklist.csv"
+      enabled: true
+    - name: "emerging_threats"
+      url: "https://rules.emergingthreats.net/open/"
+      enabled: false
+
+# ML Anomaly Detection
+ml:
+  enabled: true
+  models:
+    isolation_forest:
+      enabled: true
+      contamination: 0.1
+      n_estimators: 100
+
+    one_class_svm:
+      enabled: false
+      nu: 0.1
+      kernel: "rbf"
+
+    autoencoder:
+      enabled: false
+      epochs: 50
+      batch_size: 32
+      encoding_dim: 16
+
+  training:
+    dataset: "CIC-IDS2017"  # CIC-IDS2017, NSL-KDD, UNSW-NB15
+    dataset_path: "data/datasets/"
+    retrain_interval_hours: 24
+    validation_split: 0.2
+
+  inference:
+    batch_size: 100
+    threshold_percentile: 95
+
+# Fusion & Scoring
+fusion:
+  weights:
+    signature_confidence: 0.7
+    ml_anomaly_score: 0.3
+
+  severity_thresholds:
+    low: 0.3
+    medium: 0.5
+    high: 0.7
+    critical: 0.9
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 5000
+  debug: true
+  cors_enabled: true
+  rate_limit: "100/minute"
+
+  authentication:
+    enabled: false  # Enable for production
+    jwt_secret: "change-this-in-production"
+    token_expiry_hours: 24
+
+# Dashboard Configuration
+dashboard:
+  port: 8501
+  title: "AI-Powered IDS Dashboard"
+  theme: "dark"
+  auto_refresh_seconds: 5
+  max_alerts_display: 1000
+
+  features:
+    real_time_monitoring: true
+    alert_investigation: true
+    threat_hunting: true
+    reporting: true
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file:
+    enabled: true
+    path: "logs/ids.log"
+    max_bytes: 10485760  # 10MB
+    backup_count: 5
+  console:
+    enabled: true
+
+# Performance
+performance:
+  worker_threads: 4
+  cache:
+    enabled: true
+    ttl_seconds: 300
+    max_size: 1000
+
+  batch_processing:
+    enabled: true
+    batch_size: 1000
+    flush_interval_seconds: 5
